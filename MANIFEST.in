@@ -1,0 +1,6 @@
+include README.md SECURITY.md CONTRIBUTING.md pyproject.toml
+include assets/overview.png assets/pipeline.png assets/mc_comparison.png
+include docs/setup.md docs/experiments.md docs/outputs.md
+recursive-include tests *.py *.json
+recursive-include raretrap/presets *.json
+recursive-include scripts *.py

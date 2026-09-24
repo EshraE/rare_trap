@@ -1,0 +1,33 @@
+{
+  "files": {
+    "estimators_samplers/engine.py": "72c6f2f75f3ad6a58c7be319e5f69f1dd4117b493500bc6b745024f7a1d645e8",
+    "estimators_samplers/subset_simulation.py": "072588324fe55aed1eb92492e6a94620928dd84de0f6386a8e5302bc7fbf25ac",
+    "estimators_samplers/targets.py": "835ad6a15cb1937d6e409992f02e211b2c849c5cffe9558578c6ca1162b5ee60",
+    "estimators_samplers/trace_observer.py": "5bc8b8f9286b9bfe124e2a79daa402baacf04a1667416023605635fc0f0a880b",
+    "utils/repetition_metrics.py": "4f194f4aff97d0bd380da189850cb20de35fab9be8da395884c209db01bd2107",
+    "utils/llm_generator.py": "9d7a310bd680ff851da863c4f8ef89512420b8ac38071c0556cda0a5a9607404",
+    "utils/model_assets.py": "7089f99486fb461e6c674a5bd975efe2410a0c06c7f06b8a1c1c44f0e41b2ba7",
+    "utils/objective_factory.py": "01d73274111cb51d1ed672fee6a5ed55242f56a4fe1d2d5a6f0619505270d93f",
+    "utils/thinktrap_objective.py": "07fea0f694ce7aede3f0e61e18e31b658dba33aa5c3bc37d4c5b42f6143d2813",
+    "utils/estimator_runner.py": "a77be1592544697aa8b5dce23bae0167bb7f9de5aa7002af2e5e8dc8a7df3286",
+    "utils/reporting.py": "93618bbccdbeb7bf4717449afc911054956b0fb641ca1c2b1d9cf37c064a3fde",
+    "utils/subset_trace_reporting.py": "7f1cd3fd38caed80d7805ccba312c3e3703320ef1b12a47063ea407b452193e4",
+    "utils/template_probe.py": "9d551556d65414ab82002e82089aa51572b402e0867cace0c8f714fe80de8f30",
+    "utils/config.py": "80e5d55cce4f881c48a92ef6f1b3ab116527f45e3f351b06183cedaf059e8ac0"
+  },
+  "functions": {
+    "scripts/run_projection_ablation.py": {
+      "_summary": "81036d8ceed5e3c3c7009ea3a1e9a776041f163b8b7ba68fbacfe51ce90e491b",
+      "_wilson_interval": "2e0cbaf54bc868d2e617a5999cd3152a6fc1cf877d8e25d67c5bc098fb64a646",
+      "_write_outputs": "795393901b3dbb7ae302d86504a181fb36afdb950cd739df47dd698d5b6cb037",
+      "_build_projection_arms": "268123befed49997b98c574f71fd07ddb3ad08848516c99c4c3c530972df7a4b",
+      "_prompt_for_arm": "de1fdc27f3be8d859a471c6240c4eaa9506beac7ff0498f3acf92a8727abac10"
+    },
+    "raretrap/_experiment.py": {
+      "run_experiment": "1e8d6ff40526a3e023be9e641e0b339dc3f17f3b0980932fe7ae28c444906709"
+    }
+  },
+  "modules": {
+    "utils/projection_space.py": "b2539db49c639926b499cc669ee3061122cea858133746e809c3db0781f93833"
+  }
+}

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raretrap"
+version = "0.1.0"
+description = "Behavioral-tail estimation for language models under controlled prompt distributions"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "accelerate>=0.26.0",
+  "huggingface-hub>=0.23.0",
+  "numpy>=2.2.6",
+  "protobuf>=6.33.6",
+  "safetensors>=0.4.0",
+  "sentencepiece>=0.2.1",
+  "tiktoken>=0.12.0",
+  "torch>=2.6.0",
+  "transformers>=5.15.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pyflakes>=3.2.0", "build>=1.2.0"]
+analysis = ["scipy>=1.14.0", "matplotlib>=3.9.0"]
+
+[project.scripts]
+raretrap = "raretrap.cli:main"
+raretrap-ablation = "scripts.run_paper_ablation:main"
+
+[tool.setuptools.packages.find]
+include = ["raretrap*", "utils*", "estimators_samplers*", "scripts*"]
+
+[tool.setuptools.package-data]
+raretrap = ["presets/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
