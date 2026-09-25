@@ -15,14 +15,20 @@ from raretrap.terminology import projection_name
 MAX_JSONL_LINE_BYTES = 64 * 1024 * 1024
 
 
-def jsonl_records(path: Path, *, committed_only: bool = False):
+def jsonl_records(path: Path, *, committed_only: bool = False, byte_limit: int | None = None):
     """Read a bounded point-in-time prefix, without loading a whole raw dataset.
 
     Raw evaluation journals commit records with a newline. Other completed JSONL
     exports may omit the last newline. Complete malformed records always fail.
     """
+    if byte_limit is not None and (type(byte_limit) is not int or byte_limit < 0):
+        raise ValueError("JSONL snapshot size must be a nonnegative integer.")
     with Path(path).open("rb") as stream:
         size = os.fstat(stream.fileno()).st_size
+        if byte_limit is not None:
+            if size < byte_limit:
+                raise ValueError("JSONL source was truncated below its snapshot size.")
+            size = byte_limit
         while stream.tell() < size:
             line = stream.readline(min(size - stream.tell(), MAX_JSONL_LINE_BYTES + 1))
             if len(line) > MAX_JSONL_LINE_BYTES:
@@ -30,13 +36,15 @@ def jsonl_records(path: Path, *, committed_only: bool = False):
             if not line:
                 raise ValueError("JSONL source was truncated during reading.")
             if committed_only and not line.endswith(b"\n"):
-                return
+                break
             if not line.strip():
                 continue
             row = json.loads(line)
             if not isinstance(row, dict):
                 raise ValueError("JSONL records must be objects.")
             yield row
+        if os.fstat(stream.fileno()).st_size < size:
+            raise ValueError("JSONL source was truncated during reading.")
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -95,6 +103,8 @@ class DatasetJournal:
     MAX_LINE_BYTES = MAX_JSONL_LINE_BYTES
 
     def __init__(self, source: Path, destination: Path, *, byte_limit: int | None = None):
+        if byte_limit is not None and (type(byte_limit) is not int or byte_limit < 0):
+            raise ValueError("Raw snapshot size must be a nonnegative integer.")
         self.source = Path(source)
         self.destination = Path(destination)
         self.destination.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -103,16 +113,32 @@ class DatasetJournal:
         self.offset = self.evaluations = self.rows = 0
         self.digest = hashlib.sha256()
         self.latest = {}
+        self._source_identity = None
+        self._observed_size = 0
+
+    def _check_source(self, info) -> int:
+        identity = (info.st_dev, info.st_ino)
+        if self._source_identity is not None and identity != self._source_identity:
+            raise ValueError("Raw stream was replaced while being monitored.")
+        if info.st_size < max(self.offset, self._observed_size, self.byte_limit or 0):
+            raise ValueError("Raw stream was truncated while being monitored.")
+        self._source_identity = identity
+        self._observed_size = info.st_size
+        return min(info.st_size, self.byte_limit) if self.byte_limit is not None else info.st_size
+
+    def _missing_source(self) -> None:
+        if self._source_identity is not None or self.byte_limit is not None:
+            raise ValueError("Raw stream disappeared while being monitored.")
 
     def poll(self) -> int:
         previous = self.evaluations
-        if not self.source.exists():
+        try:
+            stream = self.source.open("rb")
+        except FileNotFoundError:
+            self._missing_source()
             return 0
-        size = self.source.stat().st_size
-        if size < self.offset:
-            raise ValueError("Raw stream was truncated while being monitored.")
-        size = min(size, self.byte_limit) if self.byte_limit is not None else size
-        with self.source.open("rb") as stream:
+        with stream:
+            size = self._check_source(os.fstat(stream.fileno()))
             stream.seek(self.offset)
             while stream.tell() < size:
                 start = stream.tell()
@@ -122,6 +148,8 @@ class DatasetJournal:
                 if not line.endswith(b"\n"):
                     break
                 row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("Raw sample records must be objects.")
                 for normalized in dataset_rows(row):
                     encoded = json.dumps(normalized, ensure_ascii=False, allow_nan=False) + "\n"
                     self.handle.write(encoded)
@@ -137,14 +165,17 @@ class DatasetJournal:
                         if isinstance(value, float) and not math.isfinite(value):
                             self.latest[key] = None
                 self.offset = stream.tell()
+            self._check_source(os.fstat(stream.fileno()))
         self.handle.flush()
         os.fsync(self.handle.fileno())
         return self.evaluations - previous
 
     def manifest(self, state: str) -> dict:
-        size = self.source.stat().st_size if self.source.exists() else 0
-        if self.byte_limit is not None:
-            size = min(size, self.byte_limit)
+        try:
+            size = self._check_source(self.source.stat())
+        except FileNotFoundError:
+            self._missing_source()
+            size = 0
         return dict(schema_version=1, state=state, updated=time.time(), format="jsonl",
                     completed_evaluations=self.evaluations, dataset_rows=self.rows,
                     raw_bytes_consumed=self.offset, pending_raw_bytes=size - self.offset,

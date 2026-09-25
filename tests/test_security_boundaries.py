@@ -140,6 +140,32 @@ def test_nonjournal_jsonl_allows_complete_final_record_without_newline(tmp_path)
     assert list(artifacts.jsonl_records(path, committed_only=True)) == []
 
 
+def test_reader_respects_supplied_snapshot_and_rejects_shorter_source(tmp_path):
+    path = tmp_path / "rows.jsonl"
+    path.write_text('{"value":1}\n')
+    initial_size = path.stat().st_size
+    with path.open("a") as stream:
+        stream.write('{"value":2}\n')
+    assert list(artifacts.jsonl_records(path, byte_limit=initial_size)) == [{"value": 1}]
+    path.write_text("")
+    with pytest.raises(ValueError, match="truncated"):
+        list(artifacts.jsonl_records(path, byte_limit=initial_size))
+
+
+@pytest.mark.parametrize("limit", [-1, True, 1.5])
+def test_reader_rejects_invalid_snapshot_sizes(tmp_path, limit):
+    path = tmp_path / "rows.jsonl"
+    path.write_text('{"value":1}\n')
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        list(artifacts.jsonl_records(path, byte_limit=limit))
+
+
+def test_reader_zero_byte_snapshot_stays_empty_after_append(tmp_path):
+    path = tmp_path / "rows.jsonl"
+    path.write_text('{"value":1}\n')
+    assert list(artifacts.jsonl_records(path, byte_limit=0)) == []
+
+
 def test_recovery_checkpoint_failure_does_not_mask_original_error(tmp_path, monkeypatch):
     path = tmp_path / "raw.jsonl"
     path.write_text('{broken}\n')

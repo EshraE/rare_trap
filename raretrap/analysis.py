@@ -10,13 +10,13 @@ from pathlib import Path
 
 import numpy as np
 
-from raretrap.summarize import estimator_row, is_fixed_budget_mc, projection_rows, summarize
+from raretrap.summarize import estimator_row, is_fixed_budget_mc, projection_rows, print_tables
 from raretrap.terminology import projection_label, projection_name
 from raretrap.artifacts import jsonl_records
 
 
-def records(path, *, committed_only=False):
-    yield from jsonl_records(path, committed_only=committed_only)
+def records(path, *, committed_only=False, byte_limit=None):
+    yield from jsonl_records(path, committed_only=committed_only, byte_limit=byte_limit)
 
 
 def write_json(path, value):
@@ -132,13 +132,13 @@ def evaluation_counts(level_sampler):
     return counts
 
 
-def export_cases(root, destination):
+def export_cases(root, destination, *, byte_limit=None):
     """All observed evaluations, not just selected successes or worst cases."""
     source = root / "raw_samples.jsonl"
     if not source.exists():
         raise ValueError(f"Missing raw samples in {root}")
     count = 0
-    for row in records(source, committed_only=True):
+    for row in records(source, committed_only=True, byte_limit=byte_limit):
         if row.get("record_type") == "metadata":
             continue
         # Folder names never derive from untrusted model text or recorded paths.
@@ -156,7 +156,7 @@ def export_cases(root, destination):
     return count
 
 
-def plot_outputs(root, destination, populations):
+def plot_outputs(root, destination, populations, *, byte_limit=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -169,7 +169,7 @@ def plot_outputs(root, destination, populations):
 
     if (root / "metadata.json").exists():
         values = defaultdict(list)
-        for row in records(root / "raw_samples.jsonl", committed_only=True):
+        for row in records(root / "raw_samples.jsonl", committed_only=True, byte_limit=byte_limit):
             values[projection_name(row["arm"])].append(
                 {key: row[key] for key in ("output_tokens", "repetition_score")})
         fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
@@ -273,8 +273,10 @@ def report(paths, output, *, figures=False, cases=False):
     projections, estimates, levels, diagnostics, manifests, replication_entries = [], [], [], [], [], []
     for index, root in enumerate(paths):
         label = f"run_{index:03d}"
-        if (root / "metadata.json").exists() and (root / "raw_samples.jsonl").exists():
-            projections.extend(dict(run=label, **row) for row in projection_rows(root))
+        raw = root / "raw_samples.jsonl"
+        raw_bytes = raw.stat().st_size if raw.is_file() else None
+        if (root / "metadata.json").exists() and raw_bytes is not None:
+            projections.extend(dict(run=label, **row) for row in projection_rows(root, byte_limit=raw_bytes))
         elif (root / "cases.json").exists():
             row, metadata = estimator_details(root)
             estimates.append(dict(run=label, **row))
@@ -286,7 +288,7 @@ def report(paths, output, *, figures=False, cases=False):
                                     estimator_result=metadata["estimator_result"]))
         else:
             raise ValueError(f"No supported run artifacts in {root}")
-        manifests.append(dict(run=label, source=str(root)))
+        manifests.append(dict(run=label, source=str(root), raw_bytes_snapshot=raw_bytes))
     output = Path(output)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for name, rows in (("projection", projections), ("estimates", estimates), ("populations", levels)):
@@ -300,7 +302,7 @@ def report(paths, output, *, figures=False, cases=False):
     if figures:
         plot_probabilities(estimates, output)
     with contextlib.redirect_stdout(io.StringIO()) as buffer:
-        summarize(paths)
+        print_tables(projections, estimates)
     (output / "tables.md").write_text(buffer.getvalue(), encoding="utf-8")
     write_latex(output / "projection.tex", [dict(row, arm=projection_label(row["arm"])) for row in projections],
         [("model", "Model"), ("arm", "Projection"), ("samples", "Samples"),
@@ -314,9 +316,10 @@ def report(paths, output, *, figures=False, cases=False):
         if figures or cases:
             destination.mkdir()
         if figures:
-            plot_outputs(root, destination, [p for p in levels if p["run"] == item["run"]])
+            plot_outputs(root, destination, [p for p in levels if p["run"] == item["run"]],
+                         byte_limit=item["raw_bytes_snapshot"])
         if cases:
-            item["exported_cases"] = export_cases(root, destination / "cases")
+            item["exported_cases"] = export_cases(root, destination / "cases", byte_limit=item["raw_bytes_snapshot"])
     write_json(output / "sources.json", manifests)
     (output / "README.md").write_text(
         "# Generated analysis\n\nEach run stays separate. No automatic pooling, IID confidence intervals for MCMC, "

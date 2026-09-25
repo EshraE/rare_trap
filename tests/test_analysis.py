@@ -35,6 +35,49 @@ def test_report_preserves_partial_status_and_exports_complete_records(tmp_path):
     assert not (tmp_path / "duplicate").exists()
 
 
+@pytest.mark.parametrize("figures", [False, True])
+def test_live_report_uses_same_raw_prefix_for_tables_and_cases(tmp_path, monkeypatch, figures):
+    if figures:
+        pytest.importorskip("matplotlib")
+    import raretrap.analysis as analysis
+    source, destination = tmp_path / "source", tmp_path / "report"
+    projection_fixture(source)
+    raw = source / "raw_samples.jsonl"
+    initial_size = raw.stat().st_size
+    original_write = analysis.write_json
+    original_records = analysis.records
+    prefix_reads = []
+
+    def bounded_records(path, **kwargs):
+        rows = list(original_records(path, **kwargs))
+        if path == raw:
+            assert kwargs["byte_limit"] == initial_size
+            assert len(rows) == 1
+            prefix_reads.append(path)
+        yield from rows
+
+    def write_and_append(path, value):
+        original_write(path, value)
+        if path.name == "projection.json":
+            second = dict(json.loads(raw.read_text()), sample_index=1, output_tokens=10)
+            with raw.open("a") as stream:
+                stream.write(json.dumps(second) + "\n")
+
+    monkeypatch.setattr(analysis, "write_json", write_and_append)
+    monkeypatch.setattr(analysis, "records", bounded_records)
+    report([source], destination, cases=True, figures=figures)
+    data = json.loads((destination / "projection.json").read_text())
+    assert data[0]["samples"] == "1/2"
+    table = (destination / "tables.md").read_text()
+    assert "1/2" in table and "2/2" not in table
+    assert len(list((destination / "run_000/cases").iterdir())) == 1
+    sources = json.loads((destination / "sources.json").read_text())
+    assert sources[0]["raw_bytes_snapshot"] == initial_size
+    assert sources[0]["exported_cases"] == 1
+    assert raw.stat().st_size > initial_size
+    assert len(prefix_reads) == (2 if figures else 1)
+
+
 def test_cp_zero_and_all_hits():
     pytest.importorskip("scipy")
     low, high = clopper_pearson(0, 100)

@@ -22,7 +22,7 @@ def _quantiles(values, percentiles=(50, 75, 95), cap=None):
     return " / ".join(_number(x, cap) for x in np.percentile(values, percentiles))
 
 
-def projection_rows(root: Path) -> list[dict]:
+def projection_rows(root: Path, *, byte_limit: int | None = None) -> list[dict]:
     metadata = json.loads((root / "metadata.json").read_text())
     arms = [projection_name(name) for name in metadata["arms"]]
     if not arms or len(set(arms)) != len(arms):
@@ -32,7 +32,7 @@ def projection_rows(root: Path) -> list[dict]:
     if type(expected) is not int or expected < 1 or type(cap) is not int or cap < 1:
         raise ValueError("Projection sample count and cap must be positive integers")
     records = defaultdict(list)
-    for item in jsonl_records(root / "raw_samples.jsonl", committed_only=True):
+    for item in jsonl_records(root / "raw_samples.jsonl", committed_only=True, byte_limit=byte_limit):
         item["arm"] = projection_name(item["arm"])
         if item["arm"] not in arms:
             raise ValueError("Sample belongs to an unconfigured projection arm")
@@ -115,6 +115,11 @@ def summarize(paths: list[Path]) -> None:
             estimator.append(estimator_row(path))
         else:
             raise ValueError(f"No completed estimator or projection artifacts in {path}")
+    print_tables(projection, estimator)
+
+
+def print_tables(projection: list[dict], estimator: list[dict]) -> None:
+    """Render already-read statistics without reopening growing run artifacts."""
     if projection:
         print("| Model | Projection | Samples | Length P50/P75/P95 | Repetition P50/P75/P95 | Status |")
         print("|---|---|---:|---|---|---|")

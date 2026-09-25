@@ -37,7 +37,8 @@ raretrap export-dataset --input outputs/qwen-length \
 ```
 
 Dataset recovery leaves the raw journal unchanged, ignores an unfinished final
-line, and rejects malformed complete records. It refuses an existing destination.
+line, and rejects malformed complete records. The live writer detects raw-journal
+replacement, disappearance, or truncation. Recovery refuses an existing destination.
 Completed evaluations survive ordinary interruption; an in-flight response is
 not saved token by token. Automatic MCMC resume is not implemented. Use completed
 runs or recovered snapshots for consistent analysis.
@@ -73,8 +74,10 @@ Install the `analysis` extra for figures and exact binomial intervals.
 | `--figures` | Projection CDFs, population trajectories, and probability comparisons |
 | `--cases` | Every evaluated prompt, response, and lossless record in separate directories |
 
-Reports retain partial arms and nonfinal estimates. Levels include level zero;
-displayed terminal thresholds are clipped to the requested event threshold.
+Reports retain partial arms and nonfinal estimates. Projection tables, figures,
+and case exports use the same saved raw-file prefix,
+recorded in `sources.json`, even when more evaluations arrive during export.
+Levels include level zero; displayed terminal thresholds are clipped to the requested event threshold.
 Only fixed-budget IID Monte Carlo (`--max-levels 0`) receives a 95%
 Clopper–Pearson interval. Correlated chain populations and the success-selected
 early screen do not receive IID binomial intervals.

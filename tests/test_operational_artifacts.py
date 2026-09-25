@@ -81,6 +81,22 @@ def test_corrupt_complete_line_is_rejected(tmp_path):
     assert json.loads((tmp_path / "dataset/manifest.json").read_text())["state"] == "failed"
 
 
+@pytest.mark.parametrize("payload", ["[]\n", "null\n", '"text"\n'])
+def test_nonobject_raw_records_fail_cleanly(tmp_path, payload):
+    raw = tmp_path / "raw.jsonl"
+    raw.write_text(payload)
+    with pytest.raises(ValueError, match="must be objects"):
+        export_dataset(raw, tmp_path / "dataset")
+    assert json.loads((tmp_path / "dataset/manifest.json").read_text())["state"] == "failed"
+
+
+@pytest.mark.parametrize("limit", [-1, True, 1.5])
+def test_invalid_snapshot_size_rejected_before_creating_destination(tmp_path, limit):
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        DatasetJournal(tmp_path / "raw.jsonl", tmp_path / "dataset", byte_limit=limit)
+    assert not (tmp_path / "dataset").exists()
+
+
 def test_export_snapshot_does_not_modify_raw_or_overwrite(tmp_path):
     raw = tmp_path / "raw.jsonl"
     append(raw, sample())
@@ -94,6 +110,59 @@ def test_export_snapshot_does_not_modify_raw_or_overwrite(tmp_path):
     assert raw.read_bytes() == original
     with pytest.raises(FileExistsError):
         export_dataset(raw, tmp_path / "export")
+
+
+@pytest.mark.parametrize("change", ["removed", "replaced", "truncated"])
+def test_journal_rejects_disrupted_raw_stream(tmp_path, change):
+    raw = tmp_path / "raw.jsonl"
+    append(raw, sample())
+    journal = DatasetJournal(raw, tmp_path / "dataset")
+    try:
+        assert journal.poll() == 1
+        if change == "removed":
+            raw.unlink()
+        elif change == "replaced":
+            replacement = tmp_path / "replacement.jsonl"
+            append(replacement, sample(1))
+            replacement.replace(raw)
+        else:
+            raw.write_text("")
+        with pytest.raises(ValueError, match="Raw stream"):
+            journal.poll()
+        with pytest.raises(ValueError, match="Raw stream"):
+            journal.manifest("complete")
+        assert journal.rows == journal.evaluations == 1
+    finally:
+        journal.close()
+
+
+def test_journal_rejects_truncation_of_uncommitted_tail(tmp_path):
+    raw = tmp_path / "raw.jsonl"
+    append(raw, sample())
+    committed = raw.read_bytes()
+    with raw.open("ab") as stream:
+        stream.write(b'{"pending":')
+    journal = DatasetJournal(raw, tmp_path / "dataset")
+    try:
+        assert journal.poll() == 1
+        raw.write_bytes(committed)
+        with pytest.raises(ValueError, match="Raw stream"):
+            journal.poll()
+    finally:
+        journal.close()
+
+
+def test_snapshot_rejects_shortened_source_before_first_poll(tmp_path):
+    raw = tmp_path / "raw.jsonl"
+    append(raw, sample())
+    append(raw, sample(1))
+    journal = DatasetJournal(raw, tmp_path / "dataset", byte_limit=raw.stat().st_size)
+    try:
+        raw.write_text("")
+        with pytest.raises(ValueError, match="Raw stream"):
+            journal.poll()
+    finally:
+        journal.close()
 
 
 def test_monitor_publishes_while_run_is_still_active(tmp_path):
