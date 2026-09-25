@@ -106,25 +106,27 @@ def check() -> list[str]:
     return problems
 
 
-def check_history() -> list[str]:
-    """Audit reachable source history and identities, without printing identities."""
+def check_history(*, anonymous: bool = False) -> list[str]:
+    """Audit reachable source history; optionally require anonymous identities."""
     if not (ROOT / ".git").exists():
         return ["no local Git history: use the source check or verify_public_archive for an exported release"]
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=ROOT)
 
     if git("rev-parse", "--is-shallow-repository").strip() == b"true":
-        return ["anonymous history check requires a non-shallow clone"]
+        return ["history check requires a non-shallow clone"]
     commits = git("rev-list", "HEAD").decode().splitlines()
     allowed = {("RareTrap contributors", "contributors@raretrap.invalid"),
                ("Anonymous", "anonymous@example.invalid")}
     problems, seen = [], set()
     for commit in commits:
-        fields = git("show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", commit).decode().strip().split("\0")
-        if len(fields) != 4 or tuple(fields[:2]) not in allowed or tuple(fields[2:]) not in allowed:
-            problems.append(f"non-anonymous commit identity: {commit[:12]}")
+        if anonymous:
+            fields = git("show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", commit).decode().strip().split("\0")
+            if len(fields) != 4 or tuple(fields[:2]) not in allowed or tuple(fields[2:]) not in allowed:
+                problems.append(f"non-anonymous commit identity: {commit[:12]}")
         message = git("show", "-s", "--format=%B", commit).decode()
-        if any(pattern.search(message) for pattern in PATTERNS.values()):
+        if any(pattern.search(message) for label, pattern in PATTERNS.items()
+               if anonymous or label != "identifying commit trailer"):
             problems.append(f"sensitive commit message: {commit[:12]}")
         for entry in git("ls-tree", "-rz", commit).split(b"\0"):
             if not entry:
@@ -146,12 +148,13 @@ def check_history() -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--history", action="store_true", help="Also inspect committed source history")
     parser.add_argument("--anonymous", action="store_true", help="Also inspect full history and commit identities")
     args = parser.parse_args()
     try:
         findings = check()
-        if args.anonymous:
-            findings.extend(check_history())
+        if args.history or args.anonymous:
+            findings.extend(check_history(anonymous=args.anonymous))
     except (OSError, subprocess.CalledProcessError):
         findings = ["release inspection could not complete; check source access and Git availability"]
     if findings:

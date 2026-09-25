@@ -23,7 +23,7 @@ jobs:
       - run: python -m pytest -q
       - run: python -m pyflakes raretrap scripts/run_paper_ablation.py scripts/check_public_release.py scripts/export_public_release.py scripts/verify_public_archive.py scripts/check_readme.py
       - run: python scripts/check_readme.py
-      - run: python scripts/check_public_release.py --anonymous
+      - run: python scripts/check_public_release.py --history
       - run: python -m build
       - name: Verify source-only publication archive
         run: |

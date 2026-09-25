@@ -7,7 +7,8 @@ import tarfile
 import pytest
 
 from scripts import check_public_release as checker
-from scripts.export_public_release import normalized_archive
+from scripts.export_public_release import export, normalized_archive
+from scripts.verify_public_archive import REQUIRED, verify
 
 
 def test_archive_removes_owner_names_timestamps_and_extended_attributes(tmp_path):
@@ -63,9 +64,61 @@ def test_history_scan_catches_removed_private_files_and_nonanonymous_identity(mo
                GIT_AUTHOR_EMAIL="anonymous@example.invalid", GIT_COMMITTER_EMAIL="anonymous@example.invalid")
     git("-c", "commit.gpgsign=false", "commit", "-m", "clean current files")
     assert not checker.check()
-    findings = checker.check_history()
+    findings = checker.check_history(anonymous=True)
     assert any("non-anonymous commit identity" in item for item in findings)
     assert any("non-source artifact" in item for item in findings)
+    public_findings = checker.check_history()
+    assert any("non-source artifact" in item for item in public_findings)
+    assert not any("non-anonymous commit identity" in item for item in public_findings)
+
+
+def test_public_history_and_export_allow_named_contributors(monkeypatch, tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    monkeypatch.setattr(checker, "ROOT", source)
+    env = dict(os.environ, GIT_AUTHOR_NAME="Example Contributor", GIT_COMMITTER_NAME="Example Contributor",
+               GIT_AUTHOR_EMAIL="person@example.invalid", GIT_COMMITTER_EMAIL="person@example.invalid")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=source, env=env, check=True, capture_output=True)
+
+    git("init")
+    for name in REQUIRED:
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source\n")
+    git("add", ".")
+    message = "Public contribution\n\nCo-authored" + "-by: Example <example@example.invalid>"
+    git("-c", "commit.gpgsign=false", "commit", "-m", message)
+    assert checker.check_history() == []
+    assert any("non-anonymous commit identity" in item for item in checker.check_history(anonymous=True))
+
+    destination = tmp_path / "release.tar.gz"
+    export(destination)
+    assert verify(destination)["status"] == "passed"
+    with tarfile.open(destination) as archive:
+        assert all(".git" not in Path(item.name).parts for item in archive)
+
+    secret = "hf_" + "x" * 24
+    git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "Accidental token " + secret)
+    findings = checker.check_history()
+    assert any("sensitive commit message" in item for item in findings)
+    assert all(secret not in item for item in findings)
+
+
+@pytest.mark.parametrize("flag,anonymous", [("--history", False), ("--anonymous", True)])
+def test_release_cli_selects_history_policy(monkeypatch, flag, anonymous):
+    monkeypatch.setattr(checker.sys, "argv", ["check_public_release.py", flag])
+    monkeypatch.setattr(checker, "check", lambda: [])
+    calls = []
+
+    def history(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(checker, "check_history", history)
+    checker.main()
+    assert calls == [{"anonymous": anonymous}]
 
 
 def test_symlink_checker_does_not_read_target(monkeypatch, tmp_path):

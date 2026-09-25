@@ -63,7 +63,7 @@ def main():
         export(args.output)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         parser.exit(2, f"Export failed: {exc}\n")
-    print(f"Anonymous source archive: {args.output}")
+    print(f"Source archive without Git or workstation metadata: {args.output}")
 
 
 if __name__ == "__main__":
